@@ -60,7 +60,7 @@ A priority-based safety layer that sits between the RL policy output and environ
 |-----------|---------------|
 | Algorithm | DQN with target network (hard update every 10 episodes) |
 | Parameter sharing | All AVs share one Q-network (input: 55-dim padded obs, output: 5 discrete actions) |
-| Local reward | Per-AV: collision (-10), speed (0~0.4), survival (+0.1), merge bonus (+5.0 one-time), merge progress (0~0.1) |
+| Local reward | Per-AV: collision (-10), speed ([0, 0.4]), survival (+0.1), merge bonus (+5.0 one-time), merge progress ([0, 0.1]) |
 | Curriculum learning | Easy (500 ep, ε=1.0) → Medium (800 ep, ε=0.8) → Hard (1200 ep, ε=0.6) |
 | Training traffic | Mixed cooperation (HDVs randomly cooperative or non-cooperative) |
 | Gradient clipping | `max_norm=10.0` to prevent Q-value overestimation cascades |
@@ -124,7 +124,7 @@ Configuration B was selected as the final reward design. The terminal bonus expe
 
 ## Failure Cases
 
-See [Failure Analysis](P3_failure_analysis.md) for detailed documentation of six failure modes:
+See [Failure Analysis](Failure_analysis.md) for detailed documentation of six failure modes:
 
 1. **System-level merge unsolved** — All Merged = 0% due to DQN + local reward coordination limits
 2. **P-IDM training variance** — Interaction-aware environments create non-stationary dynamics that destabilize off-policy learning
