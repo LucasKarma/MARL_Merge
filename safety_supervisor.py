@@ -45,10 +45,10 @@ class SafetySupervisor:
         actions = list(actions)
 
         # 第一步：按优先级排序
-        priorities = [self._priority(av) for av in controlled]
-        sorted_indices = np.argsort(priorities)[::-1]  # 高优先级在前
+        priorities = [self._priority(av) for av in controlled] # 给每一个AV计算优先级
+        sorted_indices = np.argsort(priorities)[::-1]  # 返回排序下标，高优先级在前
 
-        # 存储每辆 AV 确认后的安全轨迹
+        # 存储每辆 AV 确认后的安全轨迹，用于 第i+1辆AV 与 第i辆AV 进行碰撞检测
         confirmed_trajectories = {}
 
         for idx in sorted_indices:
@@ -69,11 +69,11 @@ class SafetySupervisor:
                 confirmed_trajectories[id(av)] = av_traj
             else:
                 # 不安全，找最安全的替代动作
-                best_action = original_action
+                best_action = original_action # 保底，假如5个候选都危险
                 best_margin = -float("inf")
-                best_traj = av_traj
+                best_traj = av_traj # 同样保底，先把最佳轨迹初始化为原始动作对应的轨迹。
 
-                for candidate_action in range(5):  # 0-4 五个动作
+                for candidate_action in range(5):  # 0-4 五个动作（LANE_LEFT / IDLE / LANE_RIGHT / FASTER / SLOWER）
                     cand_traj = self._predict_av_trajectory(
                         av, candidate_action
                     )
@@ -84,7 +84,7 @@ class SafetySupervisor:
                         best_traj = cand_traj
 
                 actions[idx] = best_action
-                confirmed_trajectories[id(av)] = best_traj
+                confirmed_trajectories[id(av)] = best_traj # 把替换后动作对应的轨迹存入字典，供后续 AV 审查时使用。
 
         return tuple(actions)
 
@@ -112,11 +112,10 @@ class SafetySupervisor:
         )
         if front is not None and av.speed > 0:
             headway_dist = front.position[0] - av.position[0]
-            time_headway = headway_dist / av.speed
-            # 用 -log 使得小 headway → 高分数
+            time_headway = headway_dist / av.speed # 到前车的时间距离
             score += self.ALPHA_HEADWAY * max(
                 0, -np.log(max(time_headway / 1.2, 0.01))
-            )
+            ) # 用 -log 使得小 headway → 高分数
 
         # 加一点噪声打破平局
         score += np.random.normal(0, 0.01)
@@ -146,7 +145,7 @@ class SafetySupervisor:
             x = x + speed * self.DT
             trajectory.append(x)
 
-        return trajectory
+        return trajectory # 返回比如[232.1, 234.3, 236.4, 238.4, 240.3, 242.1]，每个元素是对应时间步的预测 x 坐标。
 
     def _get_other_trajectories(self, av, road, confirmed_trajectories):
         """
@@ -177,7 +176,7 @@ class SafetySupervisor:
         front, rear = road.neighbour_vehicles(hdv, hdv.lane_index)
         acc = hdv.acceleration(
             ego_vehicle=hdv, front_vehicle=front, rear_vehicle=rear
-        )
+        ) # AV 的 acc 来自动作映射表，HDV 的 acc 来自 IDM 公式
 
         trajectory = []
         x = hdv.position[0]
@@ -190,7 +189,7 @@ class SafetySupervisor:
         return trajectory
 
     def _predict_constant_speed(self, vehicle):
-        """匀速预测：最简单的 fallback。"""
+        """匀速预测：最简单的 fallback。用在未确认的其他 AV 上——它们的动作还没决定，无法预测加速度，用匀速是最保守的合理假设。"""
         trajectory = []
         x = vehicle.position[0]
         for step in range(self.T_N):
