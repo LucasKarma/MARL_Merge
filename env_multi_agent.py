@@ -16,21 +16,21 @@ from vehicle_pidm import PIDMVehicle
 
 DIFFICULTY_CONFIGS = {
     "easy": {
-        "controlled_vehicles": 2,
-        "vehicles_count": 5,
+        "controlled_vehicles": 2, # AV
+        "vehicles_count": 5, # self + others(4)
         "road_ends": [150, 80, 80, 150],       # 默认道路，总长 460m
         "vehicles": [
             # --- 匝道 ---
-            (("j", "k", 0),   5, 25, "av"),
+            (("j", "k", 0),   5, 25, "av"), # 5：距起点 5m 处，初始速度 25m/s
+            (("j", "k", 0),  30, 24, "hdv"),
             # --- 主道 ---
             (("a", "b", 0),  60, 30, "av"),
             (("a", "b", 0),  90, 29, "hdv"),
             (("a", "b", 0),  30, 31, "hdv"),
-            (("j", "k", 0),  30, 24, "hdv"),
         ],
     },
     "medium": {
-        "controlled_vehicles": 3,
+        "controlled_vehicles": 3, 
         "vehicles_count": 8,
         "road_ends": [200, 100, 100, 200],      # 总长 600m, 匝道 200m, 合流区 100m
         "vehicles": [
@@ -78,9 +78,9 @@ DIFFICULTY_CONFIGS = {
 
 COOPERATION_PARAMS = {
     "cooperative": {
-        "COMFORT_ACC_MAX": 2.0,
-        "DISTANCE_WANTED": 7.0,
-        "TIME_WANTED": 2.0,
+        "COMFORT_ACC_MAX": 2.0, # 最大舒适加速度，2.0相对温和
+        "DISTANCE_WANTED": 7.0, # 期望跟车距离，7.0m相对宽松
+        "TIME_WANTED": 2.0, # 期望跟车时距，2.0s意味礼让
     },
     "non_cooperative": {
         "COMFORT_ACC_MAX": 5.0,
@@ -96,7 +96,7 @@ def _sample_hdv_params(cooperation_level: str, rng: np.random.RandomState) -> di
         key = rng.choice(["cooperative", "non_cooperative"])
     else:
         key = cooperation_level
-    return COOPERATION_PARAMS[key].copy()
+    return COOPERATION_PARAMS[key].copy() # 每辆车单独一份字典对象，修改时不会互相影响
 
 
 class MultiAgentMergeEnv(MergeEnv):
@@ -111,14 +111,14 @@ class MultiAgentMergeEnv(MergeEnv):
             "use_pidm": True,
             "controlled_vehicles": 2,
             "action": {
-                "type": "MultiAgentAction",
-                "action_config": {"type": "DiscreteMetaAction"},
+                "type": "MultiAgentAction", # 多智能体场景，每一步接受的是多辆 AV 的动作元组，而不是单个动作
+                "action_config": {"type": "DiscreteMetaAction"}, # 每辆AV的动作是离散的5选1
             },
             "observation": {
-                "type": "MultiAgentObservation",
+                "type": "MultiAgentObservation", # 多辆 AV 各自的 obs，而不是单个 obs
                 "observation_config": {
-                    "type": "Kinematics",
-                    "vehicles_count": 5,
+                    "type": "Kinematics", # 运动学观测（位置+速度）
+                    "vehicles_count": 5, # include myself
                     "features": ["presence", "x", "y", "vx", "vy"],
                 },
             },
@@ -136,22 +136,23 @@ class MultiAgentMergeEnv(MergeEnv):
 
     def reset(self, **kwargs):
         """在 reset 前先根据 difficulty 更新 config"""
-        self._apply_difficulty()
+        self._apply_difficulty() # 更换难度等级
         return super().reset(**kwargs)
 
     def _make_road(self) -> None:
         """根据 difficulty 配置生成不同长度的道路。"""
         diff = self.config.get("difficulty", "easy")
-        ends = DIFFICULTY_CONFIGS[diff]["road_ends"]
+        ends = DIFFICULTY_CONFIGS[diff]["road_ends"] # 比如拿到 easy 是 [150, 80, 80, 150]
 
         net = RoadNetwork()
 
         # === 主道（双车道）===
-        c, s, n = LineType.CONTINUOUS_LINE, LineType.STRIPED, LineType.NONE
-        y = [0, StraightLane.DEFAULT_WIDTH]
+        c, s, n = LineType.CONTINUOUS_LINE, LineType.STRIPED, LineType.NONE # c - 实线；s - 虚线；n - 无线
+        y = [0, StraightLane.DEFAULT_WIDTH] # 定义两个车道的中心线
         line_type = [[c, s], [n, c]]
-        line_type_merge = [[c, s], [n, s]]
+        line_type_merge = [[c, s], [n, s]] # 车道1的右线从实线变成了虚线（c → s），因为匝道车辆要从右侧并入，右边不能是实线。
 
+        # 给每条车道各添加三段
         for i in range(2):
             net.add_lane("a", "b", StraightLane(
                 [0, y[i]], [sum(ends[:2]), y[i]], line_types=line_type[i]
@@ -166,10 +167,11 @@ class MultiAgentMergeEnv(MergeEnv):
         # === 匝道 ===
         amplitude = 3.25
         ljk = StraightLane(
-            [0, 6.5 + 4 + 4], [ends[0], 6.5 + 4 + 4],
-            line_types=[c, c], forbidden=True
+            [0, 6.5 + 4 + 4], [ends[0], 6.5 + 4 + 4], # 两个路宽 + 额外的分隔距离（路肩+间距）
+            line_types=[c, c], forbidden=True # forbidden = True 意味着这条道AV不可以停留，必须离开
         )
-        lkb = SineLane(
+        # 使用正弦曲线，因为曲率变换连续，稳定，符合标准路况几何设计。直线连接会产生突变转角，车辆到转折点时方向盘需要瞬间打死，物理上不合理。
+        lkb = SineLane( 
             ljk.position(ends[0], -amplitude),
             ljk.position(sum(ends[:2]), -amplitude),
             amplitude,
@@ -186,27 +188,27 @@ class MultiAgentMergeEnv(MergeEnv):
         )
         net.add_lane("j", "k", ljk)
         net.add_lane("k", "b", lkb)
-        net.add_lane("b", "c", lbc)
+        net.add_lane("b", "c", lbc) # 和主道bc共享，通过forbidden区分
 
         road = Road(
             network=net,
             np_random=self.np_random,
             record_history=self.config["show_trajectories"],
         )
-        road.objects.append(Obstacle(road, lbc.position(ends[2], 0)))
+        road.objects.append(Obstacle(road, lbc.position(ends[2], 0))) # 放一个障碍物。AV 必须在撞上这个障碍物之前完成变道并入主道。
         self.road = road
 
     def _make_vehicles(self):
         """根据 difficulty 配置生成所有车辆"""
         road = self.road
-        self.controlled_vehicles = []
+        self.controlled_vehicles = [] # 清空上一局的记录
 
         diff = self.config["difficulty"]
         dc = DIFFICULTY_CONFIGS[diff]
         cooperation = self.config["cooperation_level"]
         use_pidm = self.config["use_pidm"]
 
-        rng = np.random.RandomState()
+        rng = np.random.RandomState() # 用于后面给每辆 HDV 随机抽取参数，和环境全局的随机数分开，互不干扰。
         VehicleClass = PIDMVehicle if use_pidm else IDMVehicle
 
         for lane_id, longi, spd, role in dc["vehicles"]:
@@ -215,15 +217,15 @@ class MultiAgentMergeEnv(MergeEnv):
                     road, lane_id, longitudinal=longi, speed=spd,
                 )
                 road.vehicles.append(vehicle)
-                self.controlled_vehicles.append(vehicle)
+                self.controlled_vehicles.append(vehicle) # 只存 AV，RL 策略用这个列表取观测和发动作
             else:
                 hdv = VehicleClass.make_on_lane(
                     road, lane_id, longitudinal=longi, speed=spd,
                 )
-                params = _sample_hdv_params(cooperation, rng)
+                params = _sample_hdv_params(cooperation, rng) # 返回 "COMFORT_ACC_MAX"、"DISTANCE_WANTED"、"TIME_WANTED"
                 for attr, val in params.items():
                     setattr(hdv, attr, val)
-                road.vehicles.append(hdv)
+                road.vehicles.append(hdv) # hdv只加入road.vehicles，不加入controlled
 
 
 # ===== 验证脚本 =====
